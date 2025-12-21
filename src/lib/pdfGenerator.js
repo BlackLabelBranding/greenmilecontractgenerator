@@ -138,4 +138,4 @@ export const generateContractPDF = async (element, projectInfo, businessProfile)
   const prefix = (businessProfile?.filenamePrefix || "GreenMile").replace(/[^a-zA-Z0-9]/g, "");
   const filename = `${prefix}_Proposal_${sanitized}.pdf`;
 
-  return generatePDFFromElement(element, file
+  return generatePDFromElement(element, file
