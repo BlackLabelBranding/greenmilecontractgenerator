@@ -12,7 +12,8 @@ const imageUrlToDataUrl = async (url) => {
     const blob = await response.blob();
     return await new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onloadend = () =>
+        resolve(typeof reader.result === "string" ? reader.result : null);
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
@@ -51,16 +52,19 @@ const waitForImagesInRoot = async (root) => {
 export const generatePDFFromElement = async (element, filename = "document.pdf") => {
   if (!element) throw new Error("Element not found for PDF generation");
 
+  // give the browser a moment to paint fonts/images
   await new Promise((r) => setTimeout(r, 500));
 
   const watermarkImg = element.querySelector('img[alt="Watermark"]');
   const logoImg = element.querySelector('img[alt*="Logo"]');
 
+  // Convert BOTH images to data URLs (mobile-safe for html2canvas)
   const [watermarkDataUrl, logoDataUrl] = await Promise.all([
     watermarkImg?.src ? imageUrlToDataUrl(watermarkImg.src) : Promise.resolve(null),
     logoImg?.src ? imageUrlToDataUrl(logoImg.src) : Promise.resolve(null),
   ]);
 
+  // Preload all images in the live DOM
   const imgs = Array.from(element.querySelectorAll("img"));
   await Promise.all(imgs.map((img) => preloadImage(img.src)));
 
@@ -84,10 +88,12 @@ export const generatePDFFromElement = async (element, filename = "document.pdf")
         clonedDoc.body.style.height = `${scrollHeight}px`;
       }
 
+      // Force crossOrigin on all images in clone
       clonedDoc.querySelectorAll("img").forEach((img) => {
         img.setAttribute("crossorigin", "anonymous");
       });
 
+      // Swap watermark and logo in the clone to data URLs
       if (watermarkDataUrl) {
         const w = clonedDoc.querySelector('img[alt="Watermark"]');
         if (w) w.src = watermarkDataUrl;
@@ -98,24 +104,31 @@ export const generatePDFFromElement = async (element, filename = "document.pdf")
         if (l) l.src = logoDataUrl;
       }
 
+      // CRITICAL for mobile Safari: wait for cloned images to fully load
       await waitForImagesInRoot(clonedDoc);
     },
   });
 
-  const imgWidth = 8.5;
-  const pageHeight = 11;
+  const imgWidth = 8.5; // inches, letter width
+  const pageHeight = 11; // inches, letter height
   const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
   const imgData = canvas.toDataURL("image/png", 1.0);
 
-  const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+  const pdf = new jsPDF({
+    orientation: "portrait",
+    unit: "in",
+    format: "letter",
+  });
 
   let heightLeft = imgHeight;
   let position = 0;
 
+  // First page
   pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
   heightLeft -= pageHeight;
 
+  // Extra pages
   while (heightLeft > 0) {
     position = heightLeft - imgHeight;
     pdf.addPage();
@@ -138,4 +151,6 @@ export const generateContractPDF = async (element, projectInfo, businessProfile)
   const prefix = (businessProfile?.filenamePrefix || "GreenMile").replace(/[^a-zA-Z0-9]/g, "");
   const filename = `${prefix}_Proposal_${sanitized}.pdf`;
 
-  return generatePDFromElement(element, file
+  // ✅ Correct function name + correct variable
+  return generatePDFFromElement(element, filename);
+};
