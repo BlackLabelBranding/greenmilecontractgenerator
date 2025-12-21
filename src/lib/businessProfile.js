@@ -1,36 +1,50 @@
 import { DEFAULT_BUSINESS_TYPE } from './businessTypes';
 
-const STORAGE_KEY = 'pdfgen_businessProfile_v1';
+/**
+ * HARD-CODED BUSINESS PROFILE
+ * Single-customer build for Green Mile Lawn Care LLC
+ * No localStorage, no Business Settings UI
+ */
 
 export const defaultBusinessProfile = {
   businessType: DEFAULT_BUSINESS_TYPE,
-  businessName: 'Green Mile Lawn Care',
+  businessName: 'Green Mile Lawn Care LLC',
   tagline: 'Professional Lawn & Property Services',
-  // You can paste a hosted URL here (Supabase, Cloudinary, etc.) or upload in Vercel later.
-  logoUrl: '',
-  watermarkUrl: '',
+
+  // Logo + watermark (same image)
+  logoUrl:
+    'https://kilmhwlsqgjxjhvsweqb.supabase.co/storage/v1/object/public/images/Green%20Mile%20Lawncare-01.png',
+
+  watermarkUrl:
+    'https://kilmhwlsqgjxjhvsweqb.supabase.co/storage/v1/object/public/images/Green%20Mile%20Lawncare-01.png',
+
   contactLines: [
     'Paris, IL',
     '217-251-3376',
   ],
+
   filenamePrefix: 'GreenMile',
 };
 
+/**
+ * Always return the hard-coded profile
+ * (keeps function signature so imports don’t break)
+ */
 export function loadBusinessProfile() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultBusinessProfile;
-    const parsed = JSON.parse(raw);
-    return { ...defaultBusinessProfile, ...parsed };
-  } catch {
-    return defaultBusinessProfile;
-  }
+  return defaultBusinessProfile;
 }
 
-export function saveBusinessProfile(profile) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+/**
+ * No-op — intentionally disabled
+ * Kept so existing calls do not error
+ */
+export function saveBusinessProfile() {
+  // intentionally empty
 }
 
+/**
+ * Used for filenames — KEEP THIS
+ */
 export function sanitizeFilePart(value) {
   return String(value || '')
     .trim()
