@@ -2,43 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Green Mile Lawn Care theme (green + white, replaces black/gray) */
 :root {
+  /* Core palette */
   --background: 0 0% 100%;
-  --foreground: 240 10% 3.9%;
+  --foreground: 142 70% 12%;
+
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 3.9%;
+  --card-foreground: 142 70% 12%;
+
   --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 3.9%;
-  --primary: 240 5.9% 10%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 240 4.8% 95.9%;
-  --secondary-foreground: 240 5.9% 10%;
-  --muted: 240 4.8% 95.9%;
-  --muted-foreground: 240 3.8% 46.1%;
-  --accent: 240 4.8% 95.9%;
-  --accent-foreground: 240 5.9% 10%;
+  --popover-foreground: 142 70% 12%;
+
+  /* Primary = Green Mile green */
+  --primary: 142 63% 44%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Neutrals shifted to green-tinted grays */
+  --secondary: 142 30% 96%;
+  --secondary-foreground: 142 70% 12%;
+
+  --muted: 142 30% 96%;
+  --muted-foreground: 142 20% 35%;
+
+  --accent: 142 30% 96%;
+  --accent-foreground: 142 70% 12%;
+
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
-  --border: 240 5.9% 90%;
-  --input: 240 5.9% 90%;
-  --ring: 240 5.9% 10%;
+
+  /* Borders/inputs/ring: green-leaning */
+  --border: 142 25% 85%;
+  --input: 142 25% 85%;
+  --ring: 142 63% 44%;
+
   --radius: 0.5rem;
 }
 
 body {
-  @apply bg-slate-100 text-foreground;
+  /* Replace slate bg with a very light green tint */
+  @apply text-foreground;
+  background: #f3faf5;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   min-height: 100vh;
 }
 
 .glass-effect {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(10px);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, #333 0%, #111 100%);
+  /* Replace black gradient with green gradient */
+  background: linear-gradient(135deg, #2fb34a 0%, #1f7a33 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -49,8 +66,13 @@ body {
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 .pulse-glow {
@@ -58,8 +80,13 @@ body {
 }
 
 @keyframes pulse-glow {
-  from { box-shadow: 0 0 15px rgba(50, 50, 50, 0.2); }
-  to { box-shadow: 0 0 25px rgba(50, 50, 50, 0.4); }
+  /* Replace gray glow with green glow */
+  from {
+    box-shadow: 0 0 15px rgba(47, 179, 74, 0.22);
+  }
+  to {
+    box-shadow: 0 0 25px rgba(47, 179, 74, 0.50);
+  }
 }
 
 /* PWA specific styles */
