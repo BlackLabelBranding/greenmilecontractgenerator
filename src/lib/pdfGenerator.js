@@ -1,16 +1,7 @@
-// src/lib/pdfGenerator.js
-// Drop-in replacement that:
-// 1) FIXES the Vercel build error (named exports match your import)
-// 2) Makes watermark/logo far more reliable by swapping to data URLs BEFORE render
-// 3) Avoids the scrollWidth/scrollHeight sizing that often causes big blank gaps
-// 4) Waits for fonts + images (2 RAFs) so the PDF matches your preview
-
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
-/**
- * Convert an image URL into a data URL so html2canvas can't "lose" it due to CORS/async loading.
- */
+/** Fetch -> DataURL (for logos/watermarks if you still want DOM-based images) */
 async function imageUrlToDataUrl(url) {
   if (!url) return null;
   if (url.startsWith("data:")) return url;
@@ -35,9 +26,7 @@ async function imageUrlToDataUrl(url) {
 async function waitForFonts() {
   try {
     if (document?.fonts?.ready) await document.fonts.ready;
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 async function decodeImages(root) {
@@ -46,110 +35,169 @@ async function decodeImages(root) {
     imgs.map(async (img) => {
       try {
         if (!img?.src) return;
-        // If already loaded, good.
         if (img.complete && img.naturalWidth > 0) return;
-        // decode() is best when available
         if (img.decode) await img.decode();
-      } catch {
-        // ignore decode errors; still continue
-      }
+      } catch {}
     })
   );
 }
 
-function raf(count = 1) {
+function raf(n = 1) {
   return new Promise((resolve) => {
-    const step = (n) => {
-      if (n <= 0) return resolve();
-      requestAnimationFrame(() => step(n - 1));
-    };
-    step(count);
+    const step = (k) => (k <= 0 ? resolve() : requestAnimationFrame(() => step(k - 1)));
+    step(n);
   });
 }
 
 /**
- * Core generator: pass a DOM element and get a saved multi-page letter PDF.
+ * Force PDF-friendly layout to prevent flex/vh from creating massive gaps.
+ * This is the key fix for the whitespace you’re seeing on page 1.
  */
+function forcePdfLayoutStyles(root) {
+  // Disable viewport-height behaviors that explode spacing in canvas capture
+  root.querySelectorAll("*").forEach((el) => {
+    const s = el.style;
+
+    // If your app uses Tailwind utility classes, these inline overrides are the safest
+    // (they don't require knowing your class names).
+    // These target the common causes: minHeight/height vh, flex spacing.
+    if (getComputedStyle(el).minHeight.includes("vh")) s.minHeight = "auto";
+    if (getComputedStyle(el).height.includes("vh")) s.height = "auto";
+
+    const cs = getComputedStyle(el);
+    if (cs.display === "flex") {
+      // Prevent "space-between" from spreading sections across the entire height.
+      if (cs.justifyContent === "space-between" || cs.justifyContent === "space-around") {
+        s.justifyContent = "flex-start";
+        s.alignContent = "flex-start";
+      }
+    }
+  });
+}
+
+/**
+ * Create an offscreen clone with fixed width.
+ * This prevents responsive breakpoint changes during html2canvas.
+ */
+function makeOffscreenClone(element, fixedPxWidth = 816) {
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "-100000px";
+  wrapper.style.top = "0";
+  wrapper.style.width = `${fixedPxWidth}px`;
+  wrapper.style.background = "#ffffff";
+  wrapper.style.zIndex = "-1";
+  wrapper.style.pointerEvents = "none";
+
+  const clone = element.cloneNode(true);
+  clone.style.width = `${fixedPxWidth}px`;
+  clone.style.maxWidth = `${fixedPxWidth}px`;
+  clone.style.background = "#ffffff";
+
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  return { wrapper, clone };
+}
+
+/**
+ * Optional: add a watermark image per page in jsPDF so it is ALWAYS consistent
+ * (instead of depending on DOM stacking and canvas slicing).
+ */
+function addWatermarkPerPage(pdf, watermarkDataUrl) {
+  if (!watermarkDataUrl) return;
+
+  // Try to set opacity if supported
+  try {
+    // Some jsPDF builds support GState
+    const GState = pdf.GState;
+    if (GState) pdf.setGState(new GState({ opacity: 0.07 }));
+  } catch {}
+
+  const pageW = 8.5;
+  const pageH = 11;
+
+  // Centered watermark
+  const wmW = 7.5;
+  const wmH = 7.5;
+  const x = (pageW - wmW) / 2;
+  const y = (pageH - wmH) / 2;
+
+  pdf.addImage(watermarkDataUrl, "PNG", x, y, wmW, wmH, undefined, "FAST");
+
+  // Reset opacity if possible
+  try {
+    const GState = pdf.GState;
+    if (GState) pdf.setGState(new GState({ opacity: 1 }));
+  } catch {}
+}
+
 export async function generatePDFFromElement(element, filename = "document.pdf") {
   if (!element) throw new Error("Element not found for PDF generation");
 
-  // Find your watermark/logo images by alt text (matches your current strategy)
+  // If you have a watermark <img alt="Watermark" ...>, use it as source for per-page watermark.
   const watermarkImg = element.querySelector('img[alt="Watermark"]');
-  const logoImg = element.querySelector('img[alt*="Logo"]');
+  const watermarkDataUrl = watermarkImg?.src ? await imageUrlToDataUrl(watermarkImg.src) : null;
 
-  // Convert to data URLs up-front (removes CORS + async load races)
-  const [watermarkDataUrl, logoDataUrl] = await Promise.all([
-    watermarkImg?.src ? imageUrlToDataUrl(watermarkImg.src) : Promise.resolve(null),
-    logoImg?.src ? imageUrlToDataUrl(logoImg.src) : Promise.resolve(null),
-  ]);
+  // 1) Clone into a fixed-width offscreen container (prevents responsive reflow)
+  const { wrapper, clone } = makeOffscreenClone(element, 816);
 
-  // Temporarily swap src on the LIVE DOM (most reliable; avoids async onclone issues)
-  const original = {
-    watermark: watermarkImg?.src,
-    logo: logoImg?.src,
-  };
+  try {
+    // 2) Force PDF-safe layout so flex/vh doesn't create giant gaps
+    forcePdfLayoutStyles(clone);
 
-  if (watermarkImg && watermarkDataUrl) watermarkImg.src = watermarkDataUrl;
-  if (logoImg && logoDataUrl) logoImg.src = logoDataUrl;
+    // 3) Wait for fonts/images in the CLONE (not the live DOM)
+    await waitForFonts();
+    await decodeImages(clone);
+    await raf(2);
 
-  // Ensure everything is truly ready before capture
-  await waitForFonts();
-  await decodeImages(element);
-  await raf(2); // 2 paints helps a lot with "sloppy" layout
+    // 4) Capture clone
+    const canvas = await html2canvas(clone, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: "#ffffff",
+      imageTimeout: 20000,
+      // lock "windowWidth" so breakpoints don’t shift in capture:
+      windowWidth: 816,
+      logging: false,
+    });
 
-  // Capture (do NOT force scrollWidth/scrollHeight — that causes blank space in many layouts)
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    allowTaint: false,
-    backgroundColor: "#ffffff",
-    imageTimeout: 15000,
-    logging: false,
-  });
+    // 5) Build PDF with correct paging
+    const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
 
-  // Restore original sources
-  if (watermarkImg && original.watermark) watermarkImg.src = original.watermark;
-  if (logoImg && original.logo) logoImg.src = original.logo;
+    const pageW = 8.5;
+    const pageH = 11;
 
-  const pdf = new jsPDF({
-    orientation: "portrait",
-    unit: "in",
-    format: "letter",
-  });
+    const imgData = canvas.toDataURL("image/png", 1.0);
+    const imgW = pageW;
+    const imgH = (canvas.height * imgW) / canvas.width;
 
-  const pageWidth = 8.5;
-  const pageHeight = 11;
+    // Number of pages based on height ratio (prevents blank extra page)
+    const totalPages = Math.max(1, Math.ceil(imgH / pageH));
 
-  // Fit image to page width
-  const imgWidth = pageWidth;
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    for (let i = 0; i < totalPages; i++) {
+      if (i > 0) pdf.addPage();
 
-  const imgData = canvas.toDataURL("image/png", 1.0);
+      // Watermark per page (consistent)
+      addWatermarkPerPage(pdf, watermarkDataUrl);
 
-  // Multi-page slicing
-  let heightLeft = imgHeight;
-  let y = 0;
+      // Slice position
+      const y = -i * pageH;
 
-  pdf.addImage(imgData, "PNG", 0, y, imgWidth, imgHeight, undefined, "FAST");
-  heightLeft -= pageHeight;
+      pdf.addImage(imgData, "PNG", 0, y, imgW, imgH, undefined, "FAST");
+    }
 
-  while (heightLeft > 0) {
-    // Negative y shifts the same full image upward to show the next "slice"
-    y = heightLeft - imgHeight;
-    pdf.addPage();
-    pdf.addImage(imgData, "PNG", 0, y, imgWidth, imgHeight, undefined, "FAST");
-    heightLeft -= pageHeight;
+    pdf.save(filename);
+    return pdf;
+  } finally {
+    // cleanup clone
+    try {
+      document.body.removeChild(wrapper);
+    } catch {}
   }
-
-  pdf.save(filename);
-  return pdf;
 }
 
-/**
- * Your filename logic wrapper (this is what App.jsx imports).
- * IMPORTANT: this is a NAMED export, matching:
- *   import { generateContractPDF } from '@/lib/pdfGenerator';
- */
 export async function generateContractPDF(element, projectInfo, businessProfile) {
   const clientName = projectInfo?.clientName || "Client";
   const sanitized = String(clientName)
@@ -164,8 +212,4 @@ export async function generateContractPDF(element, projectInfo, businessProfile)
   return generatePDFFromElement(element, filename);
 }
 
-// Optional default export (won't hurt anything; useful if you ever switch import style)
-export default {
-  generatePDFFromElement,
-  generateContractPDF,
-};
+export default { generatePDFFromElement, generateContractPDF };
