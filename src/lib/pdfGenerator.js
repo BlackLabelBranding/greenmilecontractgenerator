@@ -8,12 +8,11 @@ const imageUrlToDataUrl = async (url) => {
   try {
     const response = await fetch(url, { mode: "cors", cache: "no-cache" });
     if (!response.ok) throw new Error(`Failed fetch: ${response.status}`);
-
     const blob = await response.blob();
+
     return await new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () =>
-        resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
@@ -23,112 +22,72 @@ const imageUrlToDataUrl = async (url) => {
   }
 };
 
-const preloadImage = (src) =>
-  new Promise((resolve) => {
-    if (!src) return resolve();
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve();
-    img.onerror = () => resolve();
-    img.src = src;
-    if (img.complete) resolve();
-  });
-
-const waitForImagesInRoot = async (root) => {
+const decodeAllImages = async (root) => {
   const imgs = Array.from(root.querySelectorAll("img"));
   await Promise.all(
-    imgs.map(
-      (img) =>
-        new Promise((resolve) => {
-          if (!img?.src) return resolve();
-          if (img.complete && img.naturalWidth > 0) return resolve();
-          img.onload = () => resolve();
-          img.onerror = () => resolve();
-        })
-    )
+    imgs.map(async (img) => {
+      try {
+        if (!img.src) return;
+        if (img.complete && img.naturalWidth > 0) return;
+        if (img.decode) await img.decode();
+      } catch {}
+    })
   );
 };
 
 export const generatePDFFromElement = async (element, filename = "document.pdf") => {
   if (!element) throw new Error("Element not found for PDF generation");
 
-  // give the browser a moment to paint fonts/images
-  await new Promise((r) => setTimeout(r, 500));
-
+  // 1) Convert watermark/logo to data URLs BEFORE canvas render
   const watermarkImg = element.querySelector('img[alt="Watermark"]');
   const logoImg = element.querySelector('img[alt*="Logo"]');
 
-  // Convert BOTH images to data URLs (mobile-safe for html2canvas)
   const [watermarkDataUrl, logoDataUrl] = await Promise.all([
     watermarkImg?.src ? imageUrlToDataUrl(watermarkImg.src) : Promise.resolve(null),
     logoImg?.src ? imageUrlToDataUrl(logoImg.src) : Promise.resolve(null),
   ]);
 
-  // Preload all images in the live DOM
-  const imgs = Array.from(element.querySelectorAll("img"));
-  await Promise.all(imgs.map((img) => preloadImage(img.src)));
+  // 2) Temporarily swap in the LIVE DOM (most reliable)
+  const originalWatermarkSrc = watermarkImg?.src;
+  const originalLogoSrc = logoImg?.src;
 
-  const scrollHeight = element.scrollHeight;
-  const scrollWidth = element.scrollWidth;
+  if (watermarkImg && watermarkDataUrl) watermarkImg.src = watermarkDataUrl;
+  if (logoImg && logoDataUrl) logoImg.src = logoDataUrl;
 
+  // 3) Wait for fonts + images to be ready
+  await document.fonts?.ready;
+  await decodeAllImages(element);
+  await new Promise((r) => requestAnimationFrame(r));
+  await new Promise((r) => requestAnimationFrame(r));
+
+  // 4) Render
   const canvas = await html2canvas(element, {
     scale: 2,
     useCORS: true,
     allowTaint: false,
     backgroundColor: "#ffffff",
-    width: scrollWidth,
-    height: scrollHeight,
-    windowWidth: scrollWidth,
-    windowHeight: scrollHeight + 1000,
     imageTimeout: 15000,
-
-    onclone: async (clonedDoc) => {
-      if (clonedDoc?.body) {
-        clonedDoc.body.style.width = `${scrollWidth}px`;
-        clonedDoc.body.style.height = `${scrollHeight}px`;
-      }
-
-      // Force crossOrigin on all images in clone
-      clonedDoc.querySelectorAll("img").forEach((img) => {
-        img.setAttribute("crossorigin", "anonymous");
-      });
-
-      // Swap watermark and logo in the clone to data URLs
-      if (watermarkDataUrl) {
-        const w = clonedDoc.querySelector('img[alt="Watermark"]');
-        if (w) w.src = watermarkDataUrl;
-      }
-
-      if (logoDataUrl) {
-        const l = clonedDoc.querySelector('img[alt*="Logo"]');
-        if (l) l.src = logoDataUrl;
-      }
-
-      // CRITICAL for mobile Safari: wait for cloned images to fully load
-      await waitForImagesInRoot(clonedDoc);
-    },
+    // IMPORTANT: do NOT force width/height unless you absolutely must
   });
 
-  const imgWidth = 8.5; // inches, letter width
-  const pageHeight = 11; // inches, letter height
+  // Restore sources
+  if (watermarkImg && originalWatermarkSrc) watermarkImg.src = originalWatermarkSrc;
+  if (logoImg && originalLogoSrc) logoImg.src = originalLogoSrc;
+
+  const imgWidth = 8.5;  // inches
+  const pageHeight = 11; // inches
   const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
   const imgData = canvas.toDataURL("image/png", 1.0);
 
-  const pdf = new jsPDF({
-    orientation: "portrait",
-    unit: "in",
-    format: "letter",
-  });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
 
   let heightLeft = imgHeight;
   let position = 0;
 
-  // First page
   pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
   heightLeft -= pageHeight;
 
-  // Extra pages
   while (heightLeft > 0) {
     position = heightLeft - imgHeight;
     pdf.addPage();
@@ -138,19 +97,4 @@ export const generatePDFFromElement = async (element, filename = "document.pdf")
 
   pdf.save(filename);
   return pdf;
-};
-
-export const generateContractPDF = async (element, projectInfo, businessProfile) => {
-  const clientName = projectInfo?.clientName || "Client";
-  const sanitized = String(clientName)
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-zA-Z0-9-]/g, "")
-    .slice(0, 60);
-
-  const prefix = (businessProfile?.filenamePrefix || "GreenMile").replace(/[^a-zA-Z0-9]/g, "");
-  const filename = `${prefix}_Proposal_${sanitized}.pdf`;
-
-  // ✅ Correct function name + correct variable
-  return generatePDFFromElement(element, filename);
 };
