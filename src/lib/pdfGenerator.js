@@ -1,4 +1,3 @@
-// src/lib/pdfGenerator.js
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -28,20 +27,37 @@ function raf(n = 1) {
   });
 }
 
-/**
- * Force PDF-safe layout rules on the element being captured.
- * This prevents flex/vh spacing from stretching the capture.
- */
-function normalizeLayoutForPdf(root) {
+/** Offscreen clone to avoid responsive reflow */
+function cloneOffscreen(element, fixedPxWidth = 816) {
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "-100000px";
+  wrapper.style.top = "0";
+  wrapper.style.width = `${fixedPxWidth}px`;
+  wrapper.style.background = "#fff";
+  wrapper.style.pointerEvents = "none";
+  wrapper.style.zIndex = "-1";
+
+  const clone = element.cloneNode(true);
+  clone.style.width = `${fixedPxWidth}px`;
+  clone.style.maxWidth = `${fixedPxWidth}px`;
+  clone.style.background = "#fff";
+
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  return { wrapper, clone };
+}
+
+/** Normalize layout in clone only */
+function normalizeForPdf(root) {
   root.querySelectorAll("*").forEach((el) => {
     const cs = getComputedStyle(el);
     const s = el.style;
 
-    // kill vh-based heights that create huge empty gaps in capture
     if (cs.minHeight?.includes("vh")) s.minHeight = "auto";
     if (cs.height?.includes("vh")) s.height = "auto";
 
-    // kill flex space distribution that pushes sections apart vertically
     if (cs.display === "flex") {
       const jc = cs.justifyContent;
       if (jc === "space-between" || jc === "space-around" || jc === "space-evenly") {
@@ -53,37 +69,18 @@ function normalizeLayoutForPdf(root) {
 }
 
 /**
- * SINGLE-PAGE PDF:
- * - Captures the element once
- * - Scales the image down (if needed) to fit on 8.5x11
- * - Never slices into multiple pages (prevents chopped/duplicated watermark/logo)
+ * FORCE ONE PAGE:
+ * - Capture once
+ * - Scale to fit BOTH width and height of Letter
+ * - Never adds pages
  */
 export async function generatePDFFromElement(element, filename = "document.pdf") {
   if (!element) throw new Error("Element not found for PDF generation");
 
-  // Temporarily add a marker class (optional) if you want PDF-only CSS later
-  element.classList.add("pdf-capture");
+  const { wrapper, clone } = cloneOffscreen(element, 816);
 
   try {
-    await waitForFonts();
-    await decodeImages(element);
-    await raf(2);
-
-    // Apply layout normalization to a cloned subtree (so we don't mess with UI)
-    const clone = element.cloneNode(true);
-    normalizeLayoutForPdf(clone);
-
-    // Put clone offscreen so computed layout is stable
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "fixed";
-    wrapper.style.left = "-100000px";
-    wrapper.style.top = "0";
-    wrapper.style.background = "#fff";
-    wrapper.style.width = "816px"; // ~8.5in @ 96dpi (good breakpoint lock)
-    clone.style.width = "816px";
-    clone.style.maxWidth = "816px";
-    wrapper.appendChild(clone);
-    document.body.appendChild(wrapper);
+    normalizeForPdf(clone);
 
     await waitForFonts();
     await decodeImages(clone);
@@ -99,8 +96,6 @@ export async function generatePDFFromElement(element, filename = "document.pdf")
       logging: false,
     });
 
-    document.body.removeChild(wrapper);
-
     const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
 
     const pageW = 8.5;
@@ -108,29 +103,28 @@ export async function generatePDFFromElement(element, filename = "document.pdf")
 
     const imgData = canvas.toDataURL("image/png", 1.0);
 
-    // Fit to page width first
-    const imgW = pageW;
-    const imgH = (canvas.height * imgW) / canvas.width;
+    // image size if we fit by width
+    const fitW = pageW;
+    const fitH = (canvas.height * fitW) / canvas.width;
 
-    // If taller than one page, scale DOWN to fit height (prevents multi-page slicing)
-    let drawW = imgW;
-    let drawH = imgH;
-    let x = 0;
-    let y = 0;
+    // if height too tall, scale down to fit height
+    const scale = fitH > pageH ? pageH / fitH : 1;
 
-    if (drawH > pageH) {
-      const scale = pageH / drawH;
-      drawW = drawW * scale;
-      drawH = drawH * scale;
-      x = (pageW - drawW) / 2; // center horizontally
-      y = 0;
-    }
+    const drawW = fitW * scale;
+    const drawH = fitH * scale;
 
+    // center horizontally, top align
+    const x = (pageW - drawW) / 2;
+    const y = 0;
+
+    // IMPORTANT: never add pages
     pdf.addImage(imgData, "PNG", x, y, drawW, drawH, undefined, "FAST");
     pdf.save(filename);
     return pdf;
   } finally {
-    element.classList.remove("pdf-capture");
+    try {
+      document.body.removeChild(wrapper);
+    } catch {}
   }
 }
 
