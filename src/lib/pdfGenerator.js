@@ -1,3 +1,4 @@
+// src/lib/pdfGenerator.js
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -6,6 +7,7 @@ async function waitForFonts() {
     if (document?.fonts?.ready) await document.fonts.ready;
   } catch {}
 }
+
 async function decodeImages(root) {
   const imgs = Array.from(root.querySelectorAll("img"));
   await Promise.all(
@@ -18,6 +20,7 @@ async function decodeImages(root) {
     })
   );
 }
+
 function raf(n = 1) {
   return new Promise((resolve) => {
     const step = (k) => (k <= 0 ? resolve() : requestAnimationFrame(() => step(k - 1)));
@@ -25,40 +28,20 @@ function raf(n = 1) {
   });
 }
 
-function makeOffscreenClone(element, fixedPxWidth = 816) {
-  const wrapper = document.createElement("div");
-  wrapper.style.position = "fixed";
-  wrapper.style.left = "-100000px";
-  wrapper.style.top = "0";
-  wrapper.style.width = `${fixedPxWidth}px`;
-  wrapper.style.background = "#ffffff";
-  wrapper.style.zIndex = "-1";
-  wrapper.style.pointerEvents = "none";
-
-  const clone = element.cloneNode(true);
-  clone.style.width = `${fixedPxWidth}px`;
-  clone.style.maxWidth = `${fixedPxWidth}px`;
-  clone.style.background = "#ffffff";
-
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
-  return { wrapper, clone };
-}
-
 /**
- * IMPORTANT: PDF-only layout normalization.
- * This prevents the "giant vertical stretch" we still see on page 1. :contentReference[oaicite:3]{index=3}
+ * Force PDF-safe layout rules on the element being captured.
+ * This prevents flex/vh spacing from stretching the capture.
  */
 function normalizeLayoutForPdf(root) {
   root.querySelectorAll("*").forEach((el) => {
     const cs = getComputedStyle(el);
     const s = el.style;
 
-    // kill vh / screen sizing
+    // kill vh-based heights that create huge empty gaps in capture
     if (cs.minHeight?.includes("vh")) s.minHeight = "auto";
     if (cs.height?.includes("vh")) s.height = "auto";
 
-    // stop flex space spreading
+    // kill flex space distribution that pushes sections apart vertically
     if (cs.display === "flex") {
       const jc = cs.justifyContent;
       if (jc === "space-between" || jc === "space-around" || jc === "space-evenly") {
@@ -70,73 +53,84 @@ function normalizeLayoutForPdf(root) {
 }
 
 /**
- * Render section to PDF page WITHOUT slicing.
- * If section would be taller than one page, we scale it down to fit.
- */
-async function addSectionAsSinglePage(pdf, sectionEl, pageIndex) {
-  const canvas = await html2canvas(sectionEl, {
-    scale: 2,
-    useCORS: true,
-    allowTaint: false,
-    backgroundColor: "#ffffff",
-    imageTimeout: 20000,
-    windowWidth: 816,
-    logging: false,
-  });
-
-  const pageW = 8.5;
-  const pageH = 11;
-
-  const imgData = canvas.toDataURL("image/png", 1.0);
-  const imgW = pageW;
-  const imgH = (canvas.height * imgW) / canvas.width;
-
-  if (pageIndex > 0) pdf.addPage();
-
-  // If the captured section is taller than a page, SCALE it down to fit ONE page
-  if (imgH > pageH) {
-    const scale = pageH / imgH;
-    const drawW = imgW * scale;
-    const drawH = imgH * scale;
-    const x = (pageW - drawW) / 2;
-    const y = 0; // top align
-    pdf.addImage(imgData, "PNG", x, y, drawW, drawH, undefined, "FAST");
-  } else {
-    pdf.addImage(imgData, "PNG", 0, 0, imgW, imgH, undefined, "FAST");
-  }
-}
-
-/**
- * MAIN:
- * Requires you to mark page sections with data-pdf-section="page"
- * If not found, it treats whole element as one page.
+ * SINGLE-PAGE PDF:
+ * - Captures the element once
+ * - Scales the image down (if needed) to fit on 8.5x11
+ * - Never slices into multiple pages (prevents chopped/duplicated watermark/logo)
  */
 export async function generatePDFFromElement(element, filename = "document.pdf") {
   if (!element) throw new Error("Element not found for PDF generation");
 
-  const { wrapper, clone } = makeOffscreenClone(element, 816);
+  // Temporarily add a marker class (optional) if you want PDF-only CSS later
+  element.classList.add("pdf-capture");
 
   try {
+    await waitForFonts();
+    await decodeImages(element);
+    await raf(2);
+
+    // Apply layout normalization to a cloned subtree (so we don't mess with UI)
+    const clone = element.cloneNode(true);
     normalizeLayoutForPdf(clone);
+
+    // Put clone offscreen so computed layout is stable
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-100000px";
+    wrapper.style.top = "0";
+    wrapper.style.background = "#fff";
+    wrapper.style.width = "816px"; // ~8.5in @ 96dpi (good breakpoint lock)
+    clone.style.width = "816px";
+    clone.style.maxWidth = "816px";
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
     await waitForFonts();
     await decodeImages(clone);
     await raf(2);
 
-    const sections = Array.from(clone.querySelectorAll('[data-pdf-section="page"]'));
-    const pageSections = sections.length ? sections : [clone];
+    const canvas = await html2canvas(clone, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: "#ffffff",
+      windowWidth: 816,
+      imageTimeout: 20000,
+      logging: false,
+    });
+
+    document.body.removeChild(wrapper);
 
     const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
 
-    for (let i = 0; i < pageSections.length; i++) {
-      await addSectionAsSinglePage(pdf, pageSections[i], i);
+    const pageW = 8.5;
+    const pageH = 11;
+
+    const imgData = canvas.toDataURL("image/png", 1.0);
+
+    // Fit to page width first
+    const imgW = pageW;
+    const imgH = (canvas.height * imgW) / canvas.width;
+
+    // If taller than one page, scale DOWN to fit height (prevents multi-page slicing)
+    let drawW = imgW;
+    let drawH = imgH;
+    let x = 0;
+    let y = 0;
+
+    if (drawH > pageH) {
+      const scale = pageH / drawH;
+      drawW = drawW * scale;
+      drawH = drawH * scale;
+      x = (pageW - drawW) / 2; // center horizontally
+      y = 0;
     }
 
+    pdf.addImage(imgData, "PNG", x, y, drawW, drawH, undefined, "FAST");
     pdf.save(filename);
     return pdf;
   } finally {
-    try {
-      document.body.removeChild(wrapper);
-    } catch {}
+    element.classList.remove("pdf-capture");
   }
 }
 
