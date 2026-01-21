@@ -1,21 +1,21 @@
 {
-  "name": "All Exterior Inc - Bid Entry",
-  "short_name": "All Exterior Bids",
-  "description": "Professional bid entry and contract generation system for All Exterior Inc",
+  "name": "Green Mile Lawn Care - Bid Entry",
+  "short_name": "Green Mile",
+  "description": "Professional bid entry and contract generation system for Green Mile Lawn Care",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#667eea",
+  "theme_color": "#1f7a3f",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "https://xopcttkrmjvwdddawdaa.supabase.co/storage/v1/object/public/Logos/greenmile-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "https://xopcttkrmjvwdddawdaa.supabase.co/storage/v1/object/public/Logos/greenmile-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
