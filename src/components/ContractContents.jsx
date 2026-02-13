@@ -1,7 +1,12 @@
-
 import React from 'react';
 
-export const ContractContents = ({ businessProfile, businessTypeConfig, projectInfo, lineItems, grandTotal }) => {
+export const ContractContents = ({
+  businessProfile,
+  businessTypeConfig,
+  projectInfo,
+  lineItems,
+  grandTotal,
+}) => {
   const {
     clientName,
     clientAddress,
@@ -17,11 +22,36 @@ export const ContractContents = ({ businessProfile, businessTypeConfig, projectI
     date,
   } = projectInfo;
 
+  // Detect one-time / install-type projects (e.g., landscaping, rock installs)
+  const btLabel = (businessTypeConfig?.label || '').toLowerCase();
+  const pName = (projectName || '').toLowerCase();
+
+  const isOneTimeProject =
+    btLabel.includes('landscap') ||
+    btLabel.includes('install') ||
+    pName.includes('landscap') ||
+    pName.includes('install') ||
+    (lineItems || []).some((li) => (li?.description || '').toLowerCase().includes('landscap')) ||
+    (lineItems || []).some((li) => (li?.description || '').toLowerCase().includes('rock')) ||
+    (lineItems || []).some((li) => (li?.description || '').toLowerCase().includes('mulch')) ||
+    (lineItems || []).some((li) => (li?.description || '').toLowerCase().includes('paver')) ||
+    (lineItems || []).some((li) => (li?.description || '').toLowerCase().includes('gravel')) ||
+    (lineItems || []).some((li) => (li?.unit || '').toLowerCase().includes('project'));
+
+  const frequencyLabel = serviceFrequency
+    ? serviceFrequency
+    : isOneTimeProject
+      ? 'One-time project'
+      : 'As agreed';
+
   const downPaymentAmount = grandTotal * (parseFloat(paymentDown) / 100 || 0);
   const completionPaymentAmount = grandTotal * (parseFloat(paymentCompletion) / 100 || 0);
 
   return (
-    <div className="bg-white text-black p-[1in] relative min-h-[11in]" style={{ fontFamily: 'sans-serif' }}>
+    <div
+      className="bg-white text-black p-[1in] relative min-h-[11in]"
+      style={{ fontFamily: 'sans-serif' }}
+    >
       {/* Watermark Background Layer */}
       {businessProfile?.watermarkUrl ? (
         <div className="absolute inset-0 flex items-center justify-center z-0 overflow-hidden pointer-events-none">
@@ -32,17 +62,25 @@ export const ContractContents = ({ businessProfile, businessTypeConfig, projectI
           />
         </div>
       ) : null}
-        
+
       {/* Content Layer */}
       <div className="relative z-10">
         <header className="flex justify-between items-start pb-8 border-b mb-8">
           <div>
             {businessProfile?.logoUrl ? (
-              <img alt={`${businessProfile.businessName} Logo`} className="h-16 mb-4 object-contain" src={businessProfile.logoUrl} />
+              <img
+                alt={`${businessProfile.businessName} Logo`}
+                className="h-16 mb-4 object-contain"
+                src={businessProfile.logoUrl}
+              />
             ) : (
               <div className="mb-4">
-                <div className="text-2xl font-bold text-gray-900">{businessProfile?.businessName || 'Business Name'}</div>
-                {businessProfile?.tagline ? <div className="text-sm text-gray-600">{businessProfile.tagline}</div> : null}
+                <div className="text-2xl font-bold text-gray-900">
+                  {businessProfile?.businessName || 'Business Name'}
+                </div>
+                {businessProfile?.tagline ? (
+                  <div className="text-sm text-gray-600">{businessProfile.tagline}</div>
+                ) : null}
               </div>
             )}
 
@@ -51,12 +89,16 @@ export const ContractContents = ({ businessProfile, businessTypeConfig, projectI
             ) : null}
 
             {(businessProfile?.contactLines || []).map((line, idx) => (
-              <p key={idx} className="text-sm text-gray-600">{line}</p>
+              <p key={idx} className="text-sm text-gray-600">
+                {line}
+              </p>
             ))}
           </div>
           <div className="text-right">
             <h1 className="text-3xl font-bold text-gray-800">SERVICE PROPOSAL</h1>
-            <p className="text-sm text-gray-600">Date: {new Date(date).toLocaleDateString()}</p>
+            <p className="text-sm text-gray-600">
+              Date: {new Date(date).toLocaleDateString()}
+            </p>
           </div>
         </header>
 
@@ -69,36 +111,78 @@ export const ContractContents = ({ businessProfile, businessTypeConfig, projectI
           <div className="text-right">
             <h2 className="font-bold mb-2 text-gray-700">JOB</h2>
             <p className="text-gray-800">{projectName}</p>
-            <p className="text-gray-800 whitespace-pre-wrap">{projectAddress || clientAddress}</p>
-            {serviceFrequency ? <p className="text-gray-800">Frequency: {serviceFrequency}</p> : null}
+            <p className="text-gray-800 whitespace-pre-wrap">
+              {projectAddress || clientAddress}
+            </p>
+
+            {/* Always show a clear frequency label */}
+            <p className="text-gray-800">Frequency: {frequencyLabel}</p>
+
             {lawnSize ? <p className="text-gray-800">Lawn Size: {lawnSize}</p> : null}
-            {startDate ? <p className="text-gray-800">Start: {new Date(startDate).toLocaleDateString()}</p> : null}
-            {endDate ? <p className="text-gray-800">End: {new Date(endDate).toLocaleDateString()}</p> : null}
+            {startDate ? (
+              <p className="text-gray-800">Start: {new Date(startDate).toLocaleDateString()}</p>
+            ) : null}
+            {endDate ? (
+              <p className="text-gray-800">End: {new Date(endDate).toLocaleDateString()}</p>
+            ) : null}
           </div>
         </section>
 
         <section className="mb-8">
-          <h2 className="text-xl font-bold bg-gray-100 text-gray-800 p-2 rounded-t-md">SCOPE OF WORK</h2>
+          <h2 className="text-xl font-bold bg-gray-100 text-gray-800 p-2 rounded-t-md">
+            SCOPE OF WORK
+          </h2>
           <table className="w-full text-sm border-collapse border border-gray-300">
             <thead className="bg-gray-50">
               <tr>
-                <th className="p-2 text-left font-semibold text-gray-700 border border-gray-300">Description</th>
-                <th className="p-2 text-right font-semibold text-gray-700 border border-gray-300">Quantity</th>
-                <th className="p-2 text-left font-semibold text-gray-700 border border-gray-300">Unit</th>
-                <th className="p-2 text-right font-semibold text-gray-700 border border-gray-300">Unit Price</th>
-                <th className="p-2 text-right font-semibold text-gray-700 border border-gray-300">Total</th>
+                <th className="p-2 text-left font-semibold text-gray-700 border border-gray-300">
+                  Description
+                </th>
+                <th className="p-2 text-right font-semibold text-gray-700 border border-gray-300">
+                  Quantity
+                </th>
+                <th className="p-2 text-left font-semibold text-gray-700 border border-gray-300">
+                  Unit
+                </th>
+                <th className="p-2 text-right font-semibold text-gray-700 border border-gray-300">
+                  Unit Price
+                </th>
+                <th className="p-2 text-right font-semibold text-gray-700 border border-gray-300">
+                  Total
+                </th>
               </tr>
             </thead>
             <tbody>
-              {lineItems.map(item => (
-                <tr key={item.id} className="border-b border-gray-300">
-                  <td className="p-2 align-top border border-gray-300 text-gray-800 whitespace-pre-wrap">{item.description}</td>
-                  <td className="p-2 text-right align-top border border-gray-300 text-gray-800">{item.quantity}</td>
-                  <td className="p-2 align-top border border-gray-300 text-gray-800">{item.unit}</td>
-                  <td className="p-2 text-right align-top border border-gray-300 text-gray-800">${parseFloat(item.unitPrice || 0).toFixed(2)}</td>
-                  <td className="p-2 text-right align-top border border-gray-300 text-gray-800">${item.total.toFixed(2)}</td>
-                </tr>
-              ))}
+              {lineItems.map((item) => {
+                const rawUnit = (item?.unit || '').trim();
+                const unitLower = rawUnit.toLowerCase();
+
+                // If it's a one-time project and unit is missing or "Per Visit", force "Per Project"
+                const displayUnit =
+                  isOneTimeProject && (!rawUnit || unitLower === 'per visit' || unitLower === 'visit')
+                    ? 'Per Project'
+                    : (rawUnit || '');
+
+                return (
+                  <tr key={item.id} className="border-b border-gray-300">
+                    <td className="p-2 align-top border border-gray-300 text-gray-800 whitespace-pre-wrap">
+                      {item.description}
+                    </td>
+                    <td className="p-2 text-right align-top border border-gray-300 text-gray-800">
+                      {item.quantity}
+                    </td>
+                    <td className="p-2 align-top border border-gray-300 text-gray-800">
+                      {displayUnit}
+                    </td>
+                    <td className="p-2 text-right align-top border border-gray-300 text-gray-800">
+                      ${parseFloat(item.unitPrice || 0).toFixed(2)}
+                    </td>
+                    <td className="p-2 text-right align-top border border-gray-300 text-gray-800">
+                      ${item.total.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <div className="flex justify-end mt-4">
@@ -114,21 +198,32 @@ export const ContractContents = ({ businessProfile, businessTypeConfig, projectI
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-8 mb-8 text-gray-800">
           <div>
             <h2 className="font-bold mb-2 text-gray-700">SERVICE DETAILS</h2>
-            <p><strong>Business Type:</strong> {businessTypeConfig?.label || 'Service'}</p>
-            {serviceFrequency ? <p><strong>Frequency:</strong> {serviceFrequency}</p> : <p><strong>Frequency:</strong> As agreed</p>}
+            <p>
+              <strong>Business Type:</strong> {businessTypeConfig?.label || 'Service'}
+            </p>
+            <p>
+              <strong>Frequency:</strong> {frequencyLabel}
+            </p>
             {lawnSize ? <p><strong>Property / Lawn Size:</strong> {lawnSize}</p> : null}
           </div>
           <div>
             <h2 className="font-bold mb-2 text-gray-700">PAYMENT TERMS</h2>
-            <p>{paymentDown || '0'}% Deposit: <strong>${downPaymentAmount.toFixed(2)}</strong></p>
-            <p>{paymentCompletion || '100'}% Balance Due: <strong>${completionPaymentAmount.toFixed(2)}</strong></p>
+            <p>
+              {paymentDown || '0'}% Deposit: <strong>${downPaymentAmount.toFixed(2)}</strong>
+            </p>
+            <p>
+              {paymentCompletion || '100'}% Balance Due:{' '}
+              <strong>${completionPaymentAmount.toFixed(2)}</strong>
+            </p>
           </div>
         </section>
 
         {notes && (
           <section className="mb-8">
             <h2 className="font-bold mb-2 text-gray-700">NOTES</h2>
-            <p className="text-sm p-4 border rounded-md bg-gray-50 whitespace-pre-wrap text-gray-800">{notes}</p>
+            <p className="text-sm p-4 border rounded-md bg-gray-50 whitespace-pre-wrap text-gray-800">
+              {notes}
+            </p>
           </section>
         )}
 
